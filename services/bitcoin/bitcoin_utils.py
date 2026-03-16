@@ -1,6 +1,7 @@
 # bitcoin_utils.py
 import requests
 from colorama import Fore, Style, init
+from services.AI.account_summarization import ai_summarize
 
 init(autoreset=True)  # Automatically reset colors after each print
 
@@ -79,3 +80,6 @@ def handle_bitcoin_address(address):
 
     print_summary(data)
     print_recent_transactions(data)
+
+    # Send data to AI summarizer
+    ai_summarize(data, chain="Bitcoin")

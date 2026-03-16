@@ -5,22 +5,29 @@ import hashlib
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
-# -------------------------
+# --------------------------------------------------
 # BASE58
-# -------------------------
+# --------------------------------------------------
 
 def base58_decode(address):
     num = 0
+
     for char in address:
         num *= 58
+
         if char not in BASE58_ALPHABET:
             return None
+
         num += BASE58_ALPHABET.index(char)
 
-    return num.to_bytes(25, byteorder="big")
+    try:
+        return num.to_bytes((num.bit_length() + 7) // 8, byteorder="big")
+    except:
+        return None
 
 
 def validate_base58_checksum(address):
+
     decoded = base58_decode(address)
 
     if not decoded or len(decoded) != 25:
@@ -35,9 +42,9 @@ def validate_base58_checksum(address):
     return checksum == hash2[:4]
 
 
-# -------------------------
+# --------------------------------------------------
 # BECH32
-# -------------------------
+# --------------------------------------------------
 
 def validate_bech32(address):
 
@@ -53,42 +60,106 @@ def validate_bech32(address):
     return True
 
 
-# -------------------------
-# BITCOIN DETECTION
-# -------------------------
+# --------------------------------------------------
+# BITCOIN DETECTOR
+# --------------------------------------------------
 
-def get_btc_address_type(address):
+def detect_bitcoin(address):
 
     if address.startswith("1") and validate_base58_checksum(address):
-        return "P2PKH (Legacy)"
+        return {
+            "chain": "Bitcoin",
+            "type": "P2PKH (Legacy)",
+            "handler": "services.bitcoin.bitcoin_utils.handle_bitcoin_address"
+        }
 
     if address.startswith("3") and validate_base58_checksum(address):
-        return "P2SH"
+        return {
+            "chain": "Bitcoin",
+            "type": "P2SH",
+            "handler": "services.bitcoin.bitcoin_utils.handle_bitcoin_address"
+        }
 
     if address.startswith("bc1q") and validate_bech32(address):
-        return "SegWit (Bech32)"
+        return {
+            "chain": "Bitcoin",
+            "type": "SegWit (Bech32)",
+            "handler": "services.bitcoin.bitcoin_utils.handle_bitcoin_address"
+        }
 
     if address.startswith("bc1p") and validate_bech32(address):
-        return "Taproot"
+        return {
+            "chain": "Bitcoin",
+            "type": "Taproot",
+            "handler": "services.bitcoin.bitcoin_utils.handle_bitcoin_address"
+        }
 
     return None
 
 
-# -------------------------
-# ROUTING
-# -------------------------
+# --------------------------------------------------
+# SOLANA DETECTOR
+# --------------------------------------------------
+
+def detect_solana(address):
+
+    decoded = base58_decode(address)
+
+    if decoded and len(decoded) == 32:
+        return {
+            "chain": "Solana",
+            "type": "Solana Wallet",
+            "handler": "services.solana.solana_utils.handle_solana_address"
+        }
+
+    return None
+
+
+def detect_ethereum(address):
+
+    if address.startswith("0x") and len(address) == 42:
+        return {
+            "chain": "Ethereum",
+            "type": "EVM Address",
+            "handler": "services.ethereum.ethereum_utils.handle_ethereum_address"
+        }
+
+    return None
+
+
+# --------------------------------------------------
+# DETECTOR REGISTRY
+# --------------------------------------------------
+
+DETECTORS = [
+    detect_bitcoin,
+    detect_solana,
+    detect_ethereum
+]
+
+
+# --------------------------------------------------
+# ROUTER
+# --------------------------------------------------
 
 def identify_crypto(address):
 
-    btc_type = get_btc_address_type(address)
+    for detector in DETECTORS:
 
-    if btc_type:
-        print("Detected: Bitcoin")
-        print("Address Type:", btc_type)
+        result = detector(address)
 
-        from services.bitcoin.bitcoin_utils import handle_bitcoin_address
-        handle_bitcoin_address(address)
+        if result:
 
-        return
+            print("Detected:", result["chain"])
+            print("Address Type:", result["type"])
+
+            module_path, func_name = result["handler"].rsplit(".", 1)
+
+            module = __import__(module_path, fromlist=[func_name])
+            handler = getattr(module, func_name)
+
+            handler(address)
+
+            return
 
     print("Unknown or unsupported address")
